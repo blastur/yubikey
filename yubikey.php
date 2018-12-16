@@ -1,9 +1,9 @@
 <?php
-
 define('OTP_LENGTH', 16);
 define('YUBI_LENGTH', 32);
 define('MODHEX_DICT', 'cbdefghijklnrtuv');
 define('HEX_DICT', '0123456789abcdef');
+define('OTP_CIPHER', 'aes-128-ecb');
 
 class YubiOTP
 {
@@ -69,11 +69,12 @@ class YubiParser
 		
 		if ($len > YUBI_LENGTH) {
 			$this->identity = substr($rawstr, 0, $len - YUBI_LENGTH);
-			$this->encrypted_otp = hex2bin($this->mod2hex(substr($rawstr, $len - YUBI_LENGTH))); 
+			$cipher = substr($rawstr, $len - YUBI_LENGTH);
 		} else {
 			$this->identity = null;
-			$this->encrypted_otp = hex2bin($this->mod2hex($rawstr));
+			$cipher = $rawstr;
 		}
+		$this->encrypted_otp = hex2bin($this->mod2hex($cipher));
 	}
 	
 	public function getIdentity() {
@@ -81,20 +82,12 @@ class YubiParser
 	}
 	
 	public function getOTP($decryptionkey) {			
-		$crypt = mcrypt_module_open(MCRYPT_RIJNDAEL_128, '', MCRYPT_MODE_ECB, '');
-		if (!$crypt)
-			throw new Exception('Unable to open mcrypt module for AES-128');
+		if (!in_array(OTP_CIPHER, openssl_get_cipher_methods()))
+			throw new Exception('Unsupported cipher method AES-128');
 
-		if (strlen($decryptionkey) > mcrypt_enc_get_key_size($crypt)) 
-			return false;
+		$decrypted = openssl_decrypt($this->encrypted_otp, OTP_CIPHER,
+			$decryptionkey, OPENSSL_RAW_DATA | OPENSSL_ZERO_PADDING);
 
-		$iv = str_repeat("\0", mcrypt_enc_get_iv_size($crypt));
-		$ret = mcrypt_generic_init($crypt, $decryptionkey, $iv);
-		if ($ret < 0 || $ret === false) 
-			return false;
-		$decrypted = mdecrypt_generic($crypt, $this->encrypted_otp);
-
-		mcrypt_generic_deinit($crypt);
 		return new YubiOTP($decrypted);
 	}
 }
